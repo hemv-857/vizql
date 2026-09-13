@@ -1,0 +1,99 @@
+name: SQL Regression Detection
+
+on:
+  pull_request:
+    paths:
+      - '*.sql'
+      - 'migrations/*.sql'
+      - 'queries/*.sql'
+      - 'sql/**/*.sql'
+  push:
+    branches: [main]
+
+jobs:
+  sql-regression:
+    name: Check SQL Regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: testdb
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install vizql
+        run: |
+          pip install -e .
+          pip install pytest pytest-cov
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -U test && break
+            sleep 1
+          done
+
+      - name: Run regression check
+        id: regression
+        run: |
+          vizql check \
+            --compare ${{ github.event.pull_request.base.ref || 'main' }} \
+            --dialect postgres \
+            --db postgresql://test:test@localhost:5432/testdb \
+            --threshold 1.5 \
+            --path . || true
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            // Read regression output from step
+            // In real usage, you'd capture the output from the previous step
+            // For now, this is a placeholder for the PR comment action
+
+      - name: Upload regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-report
+          path: regression-report.json
+          retention-days: 7
+
+
+  # Alternative: Use the vizql GitHub Action (when published)
+  # sql-regression-action:
+  #   name: SQL Regression (Action)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0
+  #     - uses: vizql/sql-regression-action@v1
+  #       with:
+  #         database-url: ${{ secrets.DATABASE_URL }}
+  #         threshold: '1.5'
+  #         dialect: 'postgres'
