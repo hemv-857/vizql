@@ -8,7 +8,9 @@ on:
       - 'queries/*.sql'
       - 'sql/**/*.sql'
   push:
-    branches: [main]
+    # Default branch on this repo is master, so the previous [main] trigger
+    # could never fire on a direct push.
+    branches: [master, main]
 
 jobs:
   sql-regression:
